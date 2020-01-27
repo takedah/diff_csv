@@ -28,6 +28,18 @@ class DiffCSV:
     def differences(self):
         return self.__differences
 
+    def to_csv(self, file_path):
+        """抽出した変更箇所をCSVファイルに出力する。
+
+        Args:
+            file_path (str): 出力するCSVファイルのパス。
+
+        Returns:
+            bool: 成功したら真を返す。
+        """
+        self.__differences.to_csv(file_path, header=False, index=False, na_rep="NaN")
+        return True
+
     def _get_differences(self):
         """2つのCSVファイルを比較して変更箇所を抽出する。
 
