@@ -1,4 +1,6 @@
 import pandas as pd
+import numpy as np
+import re
 
 
 class DiffCSV:
@@ -15,13 +17,15 @@ class DiffCSV:
             args["after_csv"] (str): 変更後のCSVファイルのパス。
             args["key_cols"] (list): 比較するキーとするカラムの番号のリスト。デフォルトは0のみのリスト。
             args["except_cols"] (list): 抽出から除外するカラムの番号のリスト。デフォルトは空リスト。
+            args["encoding"] (str): CSVファイルのエンコード。デフォルトはUTF-8。
 
         """
 
         self.__before_csv_path = args["before_csv"]
         self.__after_csv_path = args["after_csv"]
-        self.__key_cols = args.get("key_cols", [0,])
+        self.__key_cols = args.get("key_cols", [0])
         self.__except_cols = args.get("except_cols", [])
+        self.__encoding = args.get("encoding", "utf-8")
         self.__differences = self._get_differences()
 
     @property
@@ -37,7 +41,9 @@ class DiffCSV:
         Returns:
             bool: 成功したら真を返す。
         """
-        self.__differences.to_csv(file_path, header=False, index=False, na_rep="NaN")
+        self.__differences.to_csv(
+            file_path, header=False, index=False, encoding=self.__encoding
+        )
         return True
 
     def _get_differences(self):
@@ -49,8 +55,12 @@ class DiffCSV:
 
         """
 
-        before_csv = pd.read_csv(self.__before_csv_path, header=None)
-        after_csv = pd.read_csv(self.__after_csv_path, header=None)
+        before_csv = pd.read_csv(
+            self.__before_csv_path, header=None, encoding=self.__encoding, dtype=str
+        )
+        after_csv = pd.read_csv(
+            self.__after_csv_path, header=None, encoding=self.__encoding, dtype=str
+        )
         df = pd.merge(
             before_csv,
             after_csv,
@@ -60,6 +70,7 @@ class DiffCSV:
             suffixes=["_before", "_after"],
         )
         df["update_flag"] = "none"
+        df.replace(np.nan, "", inplace=True)
 
         concat_column_names = df.columns.values.tolist()
         before_column_names = [
@@ -92,6 +103,41 @@ class DiffCSV:
             elif row["_merge"] == "right_only":
                 df.at[index, "update_flag"] = "add"
 
-        output_cols = self.__key_cols + after_column_names
-        output_cols.sort(key=str)
+        i = 0
+        for col_name in after_column_names:
+            i += 1
+
+        output_cols = self._sort_column_names(self.__key_cols, after_column_names)
         return df[output_cols][df["update_flag"] != "none"]
+
+    @staticmethod
+    def _sort_column_names(key_cols, after_column_names):
+        """
+        元のCSVファイルのカラムと同じ順でCSVを出力させるため、データフレームのカラム名を取得し、
+        並べ替えた後のカラム名のリストを返す。
+        データフレームをマージするための主キーとしたカラムにsuffixが付かないことと、
+        文字列の数値を並べ替えることが、単純にリストのsortメソッドではうまくいかないため。
+
+        Args:
+            key_cols (list of int): 主キーとしたカラム番号のリスト。
+            column_names (list of str): データフレームのカラム名のリスト。
+
+        Returns:
+            sorted_column_names (list): ソート後のカラム名のリスト。
+
+        """
+
+        sorted_column_names = list()
+        i = 0
+        while i < len(key_cols + after_column_names):
+            if i in key_cols:
+                sorted_column_names.append(i)
+                i += 1
+                continue
+            for col_name in after_column_names:
+                if i == int(re.search(r"^\d+", col_name).group()):
+                    sorted_column_names.append(col_name)
+                    i += 1
+                    continue
+        sorted_column_names.append("update_flag")
+        return sorted_column_names
